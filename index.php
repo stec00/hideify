@@ -8,6 +8,8 @@ ini_set('max_execution_time', 0);
 // // Include library for detecting browser
 // require_once('url_suffixes.php');
 
+$SERVER_URL = getServerUrl();
+
 ob_start();
 $queryString = $_SERVER['QUERY_STRING'];
 if (strlen($queryString) > 0) {
@@ -84,7 +86,15 @@ function convertLinks(DOMNode $domNode, $pageUrl) {
   foreach ($domNode->childNodes as $node) {
     if ($node instanceof DOMElement) {
       switch ($node->tagName) {
+        case 'audio':
+        case 'embed':
+        case 'iframe':
         case 'img':
+        case 'input':
+        case 'script':
+        case 'source':
+        case 'track':
+        case 'video':
           $src = trim($node->getAttribute('src'));
           if ($src !== '') {
             $node->setAttribute('src', getConvertedLinkUrl($src, $pageUrl));
@@ -95,6 +105,9 @@ function convertLinks(DOMNode $domNode, $pageUrl) {
           }
           break;
         case 'a':
+        case 'area':
+        case 'base':
+        case 'link':
           $href = trim($node->getAttribute('href'));
           if ($href !== '' && !strStartsWith($href, 'javascript:')) {
             $node->setAttribute('href', getConvertedLinkUrl($href, $pageUrl));
@@ -110,26 +123,19 @@ function convertLinks(DOMNode $domNode, $pageUrl) {
 }
 
 function getConvertedLinkUrl($linkUrl, $pageUrl) {
-  $linkUrl = trim($linkUrl);
-  // $linkDomain = getDomain($linkUrl);
-  // $pageDomain = getDomain($pageUrl);
-  // $sameDomain = $linkDomain === $pageDomain;
-  // if ((isset($parts['scheme']) || isset($parts['user']) || isset($parts['pass']) || isset($parts['host'])
-  //     || isset($parts['port'])) && !$sameDomain) {
-  //   return $linkUrl;
-  // } else {
-  // if (!$sameDomain) {
-  if (strStartsWith($linkUrl, '/')) {
-    $pageUrlUpToDomain = getUrlUpToDomain($pageUrl);
-    $linkUrl = "{$pageUrlUpToDomain}{$linkUrl}";
-    // } else {
-    //   $pageUrlUpToPath = getUrlUpToPath($pageUrl);
-    //   $linkUrl = "{$pageUrlUpToPath}/{$linkUrl}";
+  if (strStartsWith($linkUrl, '#')) return $linkUrl;
+  if (strContains($linkUrl, ':')) {
+    if (!preg_match($linkUrl, '/^https?:/i')) return $linkUrl;
+  } else {
+    if (strStartsWith($linkUrl, '/')) {
+      $pageUrlPart = getUrlUpToDomain($pageUrl);
+    } else {
+      $pageUrlPart = getUrlUpToPath($pageUrl);
+    }
+    $linkUrl = "{$pageUrlPart}{$linkUrl}";
   }
-  // }
-  $serverUrl = getServerUrl();
-  return "{$serverUrl}?{$linkUrl}";
-  // }
+  global $SERVER_URL;
+  return "{$SERVER_URL}?{$linkUrl}";
 }
 
 function getServerUrl() {
@@ -144,16 +150,6 @@ function preprocessAbsoluteUrl($url) {
     return "http://{$urlNoLeadingSlashes}";
   } else {
     return trim($url);
-  }
-}
-
-function getDomain($url) {
-  global $URL_SUFFIXES_REGEX;
-  $host = getUrlHost($url);
-  if (preg_match($host, $URL_SUFFIXES_REGEX, $matches)) {
-    return $matches[1];
-  } else {
-    return '';
   }
 }
 
@@ -187,4 +183,8 @@ function getUrlHost($url) {
 
 function strStartsWith(string $haystack, string $needle) {
   return substr($haystack, 0, strlen($needle)) === $needle;
+}
+
+function strContains(string $haystack, string $needle) {
+  return strpos($haystack, $needle) !== false;
 }
