@@ -112,7 +112,11 @@ function sendHeaders($headers) {
     } else if (strStartsWith($lowerCaseHeader, 'http/')) {
       $skipping = false;
     }
-    if (!$skipping && !strStartsWith($lowerCaseHeader, 'content-encoding')) {
+    if (
+      !$skipping
+      && !strStartsWith($lowerCaseHeader, 'content-encoding')
+      && !strStartsWith($lowerCaseHeader, 'transfer-encoding')
+    ) {
       $header = convertLinksInString($header);
       header($header);
     }
