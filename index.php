@@ -140,6 +140,12 @@ function convertLinksInDom(DOMNode $domNode, $pageUrl) {
   foreach ($domNode->childNodes as $node) {
     if ($node instanceof DOMElement) {
       switch ($node->tagName) {
+        case 'a':
+        case 'area':
+        case 'base':
+        case 'link':
+          convertAttribute($node, 'href', $pageUrl);
+          break;
         case 'audio':
         case 'embed':
         case 'iframe':
@@ -152,12 +158,8 @@ function convertLinksInDom(DOMNode $domNode, $pageUrl) {
           convertAttribute($node, 'src', $pageUrl);
           convertAttribute($node, 'data-src', $pageUrl);
           break;
-        case 'a':
-        case 'area':
-        case 'base':
-        case 'link':
-          convertAttribute($node, 'href', $pageUrl);
-          break;
+        case 'form':
+          convertAttribute($node, 'action', $pageUrl);
       }
     }
 
