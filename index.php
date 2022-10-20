@@ -23,7 +23,7 @@ ob_flush();
 // Send an HTTP request (see https://stackoverflow.com/questions/5647461) and respond according to the response 
 function sendResponseForHttpRequest($url, $method, $content = null, $header = null) {
   $url = preprocessAbsoluteUrl($url);
-  $options = array('http' => array('method' => $method));
+  $options = array('http' => array('method' => $method, 'max_redirects' => 10));
   if ($content !== null) {
     $options['http']['content'] = $content;
   }
@@ -33,7 +33,12 @@ function sendResponseForHttpRequest($url, $method, $content = null, $header = nu
   $context = stream_context_create($options);
   $response = file_get_contents($url, false, $context);
   if ($response === false) {
-    throw new Exception("Problem reading data from $url: $php_errormsg");
+    $errorMsg = "Failed to read from $url.";
+    echo ($errorMsg);
+    echo ('<br/><br/>Error details:<pre>');
+    print_r(error_get_last());
+    echo ('</pre>');
+    exit();
   }
 
   sendHeaders($http_response_header);
