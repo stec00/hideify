@@ -149,23 +149,14 @@ function convertLinksInDom(DOMNode $domNode, $pageUrl) {
         case 'source':
         case 'track':
         case 'video':
-          $src = trim($node->getAttribute('src'));
-          if ($src !== '') {
-            $node->setAttribute('src', getConvertedLinkUrl($src, $pageUrl));
-          }
-          $datasrc = trim($node->getAttribute('data-src'));
-          if ($datasrc !== '') {
-            $node->setAttribute('data-src', getConvertedLinkUrl($datasrc, $pageUrl));
-          }
+          convertAttribute($node, 'src', $pageUrl);
+          convertAttribute($node, 'data-src', $pageUrl);
           break;
         case 'a':
         case 'area':
         case 'base':
         case 'link':
-          $href = trim($node->getAttribute('href'));
-          if ($href !== '' && !strStartsWith($href, 'javascript:')) {
-            $node->setAttribute('href', getConvertedLinkUrl($href, $pageUrl));
-          }
+          convertAttribute($node, 'href', $pageUrl);
           break;
       }
     }
@@ -174,6 +165,11 @@ function convertLinksInDom(DOMNode $domNode, $pageUrl) {
       convertLinksInDom($node, $pageUrl);
     }
   }
+}
+
+function convertAttribute($node, $attr, $pageUrl) {
+  $src = trim($node->getAttribute($attr));
+  $node->setAttribute($attr, getConvertedLinkUrl($src, $pageUrl));
 }
 
 function convertLinksInString(string $str) {
@@ -186,7 +182,7 @@ END;
 
 function getConvertedLinkUrl($linkUrl, $pageUrl) {
   global $SERVER_URL;
-  if (strStartsWith($linkUrl, '#')) return $linkUrl;
+  if ($linkUrl === '' || strStartsWith($linkUrl, '#')) return $linkUrl;
   if (strContains($linkUrl, ':')) {
     if (!preg_match('/^https?:\\/\\//i', $linkUrl)) return $linkUrl;
   } else {
