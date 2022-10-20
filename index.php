@@ -20,11 +20,12 @@ if (strlen($queryString) > 0) {
 
 // Send an HTTP request (see https://stackoverflow.com/questions/5647461) and respond according to the response 
 function sendResponseForHttpRequest($url) {
+  $url = preprocessAbsoluteUrl($url);
   $curlResponse = sendHttpRequest($url);
 
   $headers = $curlResponse['headers'];
   $content = $curlResponse['content'];
-  sendHeaders($headers);
+    sendHeaders($headers);
 
   $contentType = getContentType($headers);
   if ((strpos($contentType, 'text/html') !== false)) {
@@ -44,11 +45,8 @@ function sendResponseForHttpRequest($url) {
 }
 
 function sendHttpRequest($url) {
-  $url = preprocessAbsoluteUrl($url);
-
   //TODO: Random user agent
   // $useragent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.89 Safari/537.36';
-  $dir = dirname(__FILE__);
   $cookieFilenameBase = getUrlFromHostToDomain($url);
   $cookieFilename = "./$cookieFilenameBase.txt";
 
@@ -188,7 +186,7 @@ function getConvertedLinkUrl($linkUrl, $pageUrl) {
   global $SERVER_URL;
   if (strStartsWith($linkUrl, '#')) return $linkUrl;
   if (strContains($linkUrl, ':')) {
-    if (!preg_match($linkUrl, '/^https?:/i')) return $linkUrl;
+    if (!preg_match('/^https?:\\/\\//i', $linkUrl)) return $linkUrl;
   } else {
     if (strStartsWith($linkUrl, '/')) {
       $pageUrlPart = getUrlUpToDomain($pageUrl);
