@@ -25,7 +25,7 @@ function sendResponseForHttpRequest($url) {
 
   $headers = $curlResponse['headers'];
   $content = $curlResponse['content'];
-    sendHeaders($headers);
+  sendHeaders($headers);
 
   $contentType = getContentType($headers);
   if ((strpos($contentType, 'text/html') !== false)) {
@@ -67,17 +67,15 @@ function sendHttpRequest($url) {
   curl_setopt($ch, CURLOPT_VERBOSE, true);
   curl_setopt($ch, CURLOPT_STDERR, fopen('./curl.log', 'w+'));
 
-  if (getScheme($url) === 'https') {
-    //These next lines are for the magic "good cert confirmation"
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+  //These next lines are for the magic "good cert confirmation"
+  curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+  curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
-    //for local domains:
-    //you need to get the pem cert file for the root ca or intermediate CA that you signed all the domain certificates with so that PHP curl can use it...sorry batteries not included
-    //place the pem or crt ca certificate file in the same directory as the php file for this code to work
-    curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/cacert.pem');
-    curl_setopt($ch, CURLOPT_CAPATH, __DIR__ . '/cacert.pem');
-  }
+  //for local domains:
+  //you need to get the pem cert file for the root ca or intermediate CA that you signed all the domain certificates with so that PHP curl can use it...sorry batteries not included
+  //place the pem or crt ca certificate file in the same directory as the php file for this code to work
+  curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/cacert.pem');
+  curl_setopt($ch, CURLOPT_CAPATH, __DIR__ . '/cacert.pem');
 
   $headers = [];
 
