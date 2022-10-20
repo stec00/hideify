@@ -10,7 +10,6 @@ ini_set('max_execution_time', 0);
 
 $SERVER_URL = getServerUrl();
 
-ob_start();
 $queryString = $_SERVER['QUERY_STRING'];
 if (strlen($queryString) > 0) {
   sendResponseForHttpRequest($queryString, 'GET');
@@ -18,33 +17,16 @@ if (strlen($queryString) > 0) {
   // Redirect to home page
   header("Location: index.html");
 }
-ob_flush();
 
 // Send an HTTP request (see https://stackoverflow.com/questions/5647461) and respond according to the response 
-function sendResponseForHttpRequest($url, $method, $content = null, $header = null) {
-  $url = preprocessAbsoluteUrl($url);
-  $options = array('http' => array('method' => $method, 'max_redirects' => 10));
-  if ($content !== null) {
-    $options['http']['content'] = $content;
-  }
-  if ($header !== null) {
-    $options['http']['header'] = $header;
-  }
-  $context = stream_context_create($options);
-  $response = file_get_contents($url, false, $context);
-  if ($response === false) {
-    $errorMsg = "Failed to read from $url.";
-    echo ($errorMsg);
-    echo ('<br/><br/>Error details:<pre>');
-    print_r(error_get_last());
-    echo ('</pre>');
-    exit();
-  }
+function sendResponseForHttpRequest($url) {
+  $curlResponse = sendHttpRequest($url);
 
-  sendHeaders($http_response_header);
+  $headers = $curlResponse['headers'];
+  $content = $curlResponse['content'];
+  sendHeaders($headers);
 
-  //print("<pre>".print_r($http_response_header, true)."</pre>");
-  $contentType = getContentType($http_response_header);
+  $contentType = getContentType($headers);
   if ((strpos($contentType, 'text/html') !== false)) {
     $charset = getCharset($contentType);
     if ($charset === '') {
@@ -52,23 +34,90 @@ function sendResponseForHttpRequest($url, $method, $content = null, $header = nu
     } else {
       $dom = new DOMDocument("1.0", $charset);
     }
-    $dom->loadHTML($response);
-    convertLinks($dom, $url);
-    echo ($dom->saveHTML());
+    $dom->loadHTML($content);
+    convertLinksInDom($dom, $url);
+    $html = $dom->saveHTML();
+    echo ($html);
   } else {
-    echo ($response);
+    echo ($content);
   }
 }
 
-function sendHeaders($httpResponseHeaderArray) {
+function sendHttpRequest($url) {
+  $url = preprocessAbsoluteUrl($url);
+
+  //TODO: Random user agent
+  // $useragent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.89 Safari/537.36';
+  $dir = dirname(__FILE__);
+  $cookieFilenameBase = getUrlFromHostToDomain($url);
+  $cookieFilename = "./$cookieFilenameBase.txt";
+
+  $ch = curl_init($url);
+  curl_setopt($ch, CURLOPT_FAILONERROR, true);
+  curl_setopt($ch, CURLOPT_HEADER, 0);
+  curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFilename);
+  curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFilename);
+  curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+  curl_setopt($ch, CURLOPT_ENCODING, "");
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+  curl_setopt($ch, CURLOPT_AUTOREFERER, true);
+  curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 60);
+  curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+  curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
+  // curl_setopt($ch, CURLOPT_USERAGENT, $useragent);
+  // curl_setopt($ch, CURLOPT_REFERER, 'http://www.google.com/');
+  curl_setopt($ch, CURLOPT_VERBOSE, true);
+  curl_setopt($ch, CURLOPT_STDERR, fopen('./curl.log', 'w+'));
+
+  if (getScheme($url) === 'https') {
+    //These next lines are for the magic "good cert confirmation"
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+
+    //for local domains:
+    //you need to get the pem cert file for the root ca or intermediate CA that you signed all the domain certificates with so that PHP curl can use it...sorry batteries not included
+    //place the pem or crt ca certificate file in the same directory as the php file for this code to work
+    curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/cacert.pem');
+    curl_setopt($ch, CURLOPT_CAPATH, __DIR__ . '/cacert.pem');
+  }
+
+  $headers = [];
+
+  // this function is called by curl for each header received
+  curl_setopt(
+    $ch,
+    CURLOPT_HEADERFUNCTION,
+    function ($curl, $header) use (&$headers) {
+      array_push($headers, $header);
+      return strlen($header);
+    }
+  );
+
+  $content = curl_exec($ch);
+  if (curl_errno($ch)) {
+    $errorMsg = "Failed to read from $url";
+    echo ($errorMsg);
+    $curlError = curl_error($ch);
+    echo ("<br/><br/>{$curlError}");
+    curl_close($ch);
+    exit();
+  } else {
+    curl_close($ch);
+    return array('content' => $content, 'headers' => $headers);
+  }
+}
+
+function sendHeaders($headers) {
   $skipping = false;
-  foreach ($httpResponseHeaderArray as $header) {
-    if (strStartsWith($header, 'HTTP/1.1 3')) {
+  foreach ($headers as $header) {
+    $lowerCaseHeader = strtolower($header);
+    if (strStartsWith($lowerCaseHeader, 'http/1.1 3')) {
       $skipping = true;
-    } else if (strStartsWith($header, 'HTTP/')) {
+    } else if (strStartsWith($lowerCaseHeader, 'http/')) {
       $skipping = false;
     }
-    if (!$skipping) {
+    if (!$skipping && !strStartsWith($lowerCaseHeader, 'content-encoding')) {
+      $header = convertLinksInString($header);
       header($header);
     }
   }
@@ -87,7 +136,7 @@ function getCharset($contentType) {
   return preg_match('/;\s*charset\s*=\s*(.*)$/i', $contentType, $matches) ? $matches[1] : '';
 }
 
-function convertLinks(DOMNode $domNode, $pageUrl) {
+function convertLinksInDom(DOMNode $domNode, $pageUrl) {
   foreach ($domNode->childNodes as $node) {
     if ($node instanceof DOMElement) {
       switch ($node->tagName) {
@@ -122,12 +171,21 @@ function convertLinks(DOMNode $domNode, $pageUrl) {
     }
 
     if ($node->hasChildNodes()) {
-      convertLinks($node, $pageUrl);
+      convertLinksInDom($node, $pageUrl);
     }
   }
 }
 
+function convertLinksInString(string $str) {
+  global $SERVER_URL;
+  $urlRegex = <<<END
+https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&\/=]*)
+END;
+  return preg_replace("/$urlRegex/i", "{$SERVER_URL}?\$0", $str);
+}
+
 function getConvertedLinkUrl($linkUrl, $pageUrl) {
+  global $SERVER_URL;
   if (strStartsWith($linkUrl, '#')) return $linkUrl;
   if (strContains($linkUrl, ':')) {
     if (!preg_match($linkUrl, '/^https?:/i')) return $linkUrl;
@@ -139,7 +197,6 @@ function getConvertedLinkUrl($linkUrl, $pageUrl) {
     }
     $linkUrl = "{$pageUrlPart}{$linkUrl}";
   }
-  global $SERVER_URL;
   return "{$SERVER_URL}?{$linkUrl}";
 }
 
@@ -158,20 +215,28 @@ function preprocessAbsoluteUrl($url) {
   }
 }
 
+function getScheme($url) {
+  return parse_url($url, PHP_URL_SCHEME);
+}
+
 function getUrlUpToDomain($url) {
   return getUrlUpToDomainOrPath($url, false);
+}
+
+function getUrlFromHostToDomain($url) {
+  return getUrlUpToDomainOrPath($url, false, true);
 }
 
 function getUrlUpToPath($url) {
   return getUrlUpToDomainOrPath($url, true);
 }
 
-function getUrlUpToDomainOrPath($url, $includePath) {
+function getUrlUpToDomainOrPath($url, $includePath, $fromHost = false) {
   $parts = parse_url($url);
-  $scheme = isset($parts['scheme']) ? "{$parts['scheme']}://" : '';
+  $scheme = isset($parts['scheme']) && !$fromHost ? "{$parts['scheme']}://" : '';
   $user = isset($parts['user']) ? $parts['user'] : '';
   $pass = isset($parts['pass']) ? ":{$parts['pass']}" : '';
-  $userpass = $user !== '' || $pass !== "{$user}{$pass}@" ? '' : '';
+  $userpass = $user !== '' || $pass !== '' && !$fromHost ? "{$user}{$pass}@" : '';
   $host = isset($parts['host']) ? $parts['host'] : '';
   $port = isset($parts['port']) ? ":{$parts['port']}" : '';
   $path = $includePath && isset($parts['path']) ? rtrim($parts['path'], '/') : '';
