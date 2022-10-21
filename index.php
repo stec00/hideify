@@ -45,14 +45,28 @@ function sendResponseForHttpRequest($url) {
 }
 
 function sendHttpRequest($url) {
+  global $SERVER_URL;
+
   //TODO: Random user agent
   // $useragent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.89 Safari/537.36';
-  $cookieFilenameBase = getUrlFromHostToDomain($url);
-  $cookieFilename = "./$cookieFilenameBase.txt";
+  $curDir = __DIR__;
+  $urlFromHostToDomain = getUrlFromHostToDomain($url);
+  $cookieFilenameBase = urlencode("{$urlFromHostToDomain}-{$_SERVER['REMOTE_ADDR']}-{$_SERVER['HTTP_X_FORWARDED_FOR']}-{$_SERVER['HTTP_USER_AGENT']}");
+  $cookieFilename = "{$curDir}/cookies/{$cookieFilenameBase}.txt";
 
   $ch = curl_init($url);
+  if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $headers = getallheaders();
+    $headers['Referer'] = preprocessAbsoluteUrl(str_replace("{$SERVER_URL}?", '', $headers['Referer']));
+    $headers['Host'] = $headers['Referer'];
+    $headers['Origin'] = $headers['Referer'];
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_POST, true);
+    $payload = file_get_contents('php://input');
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+  }
   curl_setopt($ch, CURLOPT_FAILONERROR, true);
-  curl_setopt($ch, CURLOPT_HEADER, 0);
+  curl_setopt($ch, CURLOPT_HEADER, false);
   curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFilename);
   curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFilename);
   curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
@@ -65,7 +79,7 @@ function sendHttpRequest($url) {
   // curl_setopt($ch, CURLOPT_USERAGENT, $useragent);
   // curl_setopt($ch, CURLOPT_REFERER, 'http://www.google.com/');
   curl_setopt($ch, CURLOPT_VERBOSE, true);
-  curl_setopt($ch, CURLOPT_STDERR, fopen('./curl.log', 'w+'));
+  curl_setopt($ch, CURLOPT_STDERR, fopen("{$curDir}/curl.log", 'w+'));
 
   //These next lines are for the magic "good cert confirmation"
   curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
@@ -74,8 +88,8 @@ function sendHttpRequest($url) {
   //for local domains:
   //you need to get the pem cert file for the root ca or intermediate CA that you signed all the domain certificates with so that PHP curl can use it...sorry batteries not included
   //place the pem or crt ca certificate file in the same directory as the php file for this code to work
-  curl_setopt($ch, CURLOPT_CAINFO, __DIR__ . '/cacert.pem');
-  curl_setopt($ch, CURLOPT_CAPATH, __DIR__ . '/cacert.pem');
+  curl_setopt($ch, CURLOPT_CAINFO, "{$curDir}/cacert.pem");
+  curl_setopt($ch, CURLOPT_CAPATH, "{$curDir}/cacert.pem");
 
   $headers = [];
 
@@ -91,8 +105,7 @@ function sendHttpRequest($url) {
 
   $content = curl_exec($ch);
   if (curl_errno($ch)) {
-    $errorMsg = "Failed to read from $url";
-    echo ($errorMsg);
+    echo ("Failed to read from $url");
     $curlError = curl_error($ch);
     echo ("<br/><br/>{$curlError}");
     curl_close($ch);
