@@ -12,36 +12,38 @@ $SERVER_URL = getServerUrl();
 
 $queryString = $_SERVER['QUERY_STRING'];
 if (strlen($queryString) > 0) {
-  sendResponseForHttpRequest($queryString, 'GET');
+  if (strStartsWith($queryString, 'pageUrl=')) {
+    $ampersandPos = strpos($queryString, '&');
+    if ($ampersandPos === false) {
+      $pageUrl = urldecode(substr($queryString, 8));
+    } else {
+      $pageUrl = urldecode(substr($queryString, 8, $ampersandPos - 8))
+        . substr($queryString, $ampersandPos);
+    }
+  } else {
+    $pageUrl = urldecode($queryString);
+  }
+  $pageUrl = preprocessAbsoluteUrl($pageUrl);
+  sendResponseForHttpRequest($pageUrl, 'GET');
 } else {
   // Redirect to home page
   header("Location: index.html");
 }
 
 // Send an HTTP request (see https://stackoverflow.com/questions/5647461) and respond according to the response 
-function sendResponseForHttpRequest($url) {
-  $url = preprocessAbsoluteUrl($url);
-  $curlResponse = sendHttpRequest($url);
+function sendResponseForHttpRequest($pageUrl) {
+  $curlResponse = sendHttpRequest($pageUrl);
 
   $headers = $curlResponse['headers'];
   $content = $curlResponse['content'];
   sendHeaders($headers);
 
   $contentType = getContentType($headers);
-  if ((strpos($contentType, 'text/html') !== false)) {
-    $charset = getCharset($contentType);
-    if ($charset === '') {
-      $dom = new DOMDocument();
-    } else {
-      $dom = new DOMDocument("1.0", $charset);
-    }
-    $dom->loadHTML($content);
-    convertLinksInDom($dom, $url);
-    $html = $dom->saveHTML();
-    echo ($html);
-  } else {
-    echo ($content);
+  $isTextual = preg_match('/(?:text\/|html|json|xml|multipart)/i', $contentType);
+  if ($isTextual) {
+    $content = convertLinksInContent($content, $pageUrl);
   }
+  echo ($content);
 }
 
 function sendHttpRequest($url) {
@@ -65,7 +67,6 @@ function sendHttpRequest($url) {
     $payload = file_get_contents('php://input');
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
   }
-  curl_setopt($ch, CURLOPT_FAILONERROR, true);
   curl_setopt($ch, CURLOPT_HEADER, false);
   curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFilename);
   curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFilename);
@@ -104,6 +105,7 @@ function sendHttpRequest($url) {
   );
 
   $content = curl_exec($ch);
+
   if (curl_errno($ch)) {
     echo ("Failed to read from $url");
     $curlError = curl_error($ch);
@@ -149,57 +151,51 @@ function getCharset($contentType) {
   return preg_match('/;\s*charset\s*=\s*(.*)$/i', $contentType, $matches) ? $matches[1] : '';
 }
 
-function convertLinksInDom(DOMNode $domNode, $pageUrl) {
-  foreach ($domNode->childNodes as $node) {
-    if ($node instanceof DOMElement) {
-      switch ($node->tagName) {
-        case 'a':
-        case 'area':
-        case 'base':
-        case 'link':
-          convertAttribute($node, 'href', $pageUrl);
-          break;
-        case 'audio':
-        case 'embed':
-        case 'iframe':
-        case 'img':
-        case 'input':
-        case 'script':
-        case 'source':
-        case 'track':
-        case 'video':
-          convertAttribute($node, 'src', $pageUrl);
-          convertAttribute($node, 'data-src', $pageUrl);
-          break;
-        case 'form':
-          convertAttribute($node, 'action', $pageUrl);
+function convertLinksInContent($content, $pageUrl) {
+  global $SERVER_URL;
+  $pageHost = getUrlHost($pageUrl);
+  $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?$pageHost", $content);
+  $content = preg_replace_callback(
+    '/((?:href|src|action|url)(?:["\']|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\2/i',
+    function ($matches) use ($pageUrl) {
+      $convertedLink = getConvertedLink($matches[3], $pageUrl);
+      $replaced = "{$matches[1]}{$matches[2]}{$convertedLink}{$matches[2]}";
+      return $replaced;
+    },
+    $content
+  );
+  $content = preg_replace_callback(
+    '/(action\s*=\s*)(["\'])(.*?)\2(.*?>)/i',
+    function ($matches) use ($pageUrl) {
+      global $SERVER_URL;
+      if (strStartsWith($matches[3], "{$SERVER_URL}?")) {
+        $pageUrlValue = substr($matches[3], strlen($SERVER_URL) + 1);
+        $replaced = "{$matches[1]}{$matches[2]}{$SERVER_URL}?{$matches[2]}{$matches[4]}<input name='pageUrl' value='{$pageUrlValue}' type='hidden'/>";
+      } else {
+        $replaced = $matches[0];
       }
-    }
-
-    if ($node->hasChildNodes()) {
-      convertLinksInDom($node, $pageUrl);
-    }
-  }
-}
-
-function convertAttribute($node, $attr, $pageUrl) {
-  $src = trim($node->getAttribute($attr));
-  $node->setAttribute($attr, getConvertedLinkUrl($src, $pageUrl));
+      return $replaced;
+    },
+    $content);
+  return $content;
 }
 
 function convertLinksInString(string $str) {
-  global $SERVER_URL;
-  $urlRegex = <<<END
-https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&\/=]*)
-END;
-  return preg_replace("/$urlRegex/i", "{$SERVER_URL}?\$0", $str);
+  return preg_replace_callback(
+    '/https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b(?:[-a-zA-Z0-9@:%_\+.~#?&\/=]*)/i',
+    function ($matches) {
+      global $SERVER_URL;
+      return strStartsWith($matches[0], $SERVER_URL) ? $matches[0] : "{$SERVER_URL}?{$matches[0]}";
+    },
+    $str
+  );
 }
 
-function getConvertedLinkUrl($linkUrl, $pageUrl) {
+function getConvertedLink($linkUrl, $pageUrl) {
   global $SERVER_URL;
-  if ($linkUrl === '' || strStartsWith($linkUrl, '#')) return $linkUrl;
-  if (strContains($linkUrl, ':')) {
-    if (!preg_match('/^https?:\\/\\//i', $linkUrl)) return $linkUrl;
+  if ($linkUrl === '' || strStartsWith($linkUrl, '#') || strStartsWith($linkUrl, "$SERVER_URL?")) return $linkUrl;
+  if (preg_match('/(?:\:\/\/|^javascript:|^about:)/i', $linkUrl)) {
+    if (!preg_match('/^(?:https?)?:\\/\\//i', $linkUrl)) return $linkUrl;
   } else {
     if (strStartsWith($linkUrl, '/')) {
       $pageUrlPart = getUrlUpToDomain($pageUrl);
@@ -208,7 +204,9 @@ function getConvertedLinkUrl($linkUrl, $pageUrl) {
     }
     $linkUrl = "{$pageUrlPart}{$linkUrl}";
   }
-  return "{$SERVER_URL}?{$linkUrl}";
+  $appendChar = !strContains($linkUrl, '?') ? '?' : '';
+  $convertedLink = "{$SERVER_URL}?{$linkUrl}{$appendChar}";
+  return $convertedLink;
 }
 
 function getServerUrl() {
@@ -216,18 +214,34 @@ function getServerUrl() {
   return "{$scheme}://{$_SERVER['HTTP_HOST']}{$_SERVER['URL']}";
 }
 
-function preprocessAbsoluteUrl($url) {
-  $scheme = getUrlScheme($url);
-  if ($scheme === '') {
-    $urlNoLeadingSlashes = rtrim(ltrim($url, '/'));
-    return "http://{$urlNoLeadingSlashes}";
-  } else {
-    return trim($url);
+function preprocessAbsoluteUrl($url, $firstRun = true) {
+  $parts = parse_url($url);
+  $scheme = isset($parts['scheme']) ? $parts['scheme'] : 'http';
+  $user = isset($parts['user']) ? $parts['user'] : '';
+  $pass = isset($parts['pass']) ? ":{$parts['pass']}" : '';
+  $userpass = $user !== '' || $pass !== '' ? "{$user}{$pass}@" : '';
+  $host = isset($parts['host'])
+    ? (preg_match('/(?:^localhost|^\d{1,3}\.\d{1,3}\d{1,3}\.\d{1,3}|^www\.)/i', $parts['host'])
+      ? $parts['host']
+      : "www.{$parts['host']}")
+    : '';
+  $port = isset($parts['port']) ? ":{$parts['port']}" : '';
+  $path = isset($parts['path']) ? rtrim($parts['path'], '/') : '';
+  $query = isset($parts['query']) ? "?{$parts['query']}" : '';
+  $fragment = isset($parts['fragment']) ? "#{$parts['fragment']}" : '';
+  $url = "{$scheme}://{$userpass}{$host}{$port}{$path}{$query}{$fragment}";
+  if ($firstRun) {
+    $url = preprocessAbsoluteUrl($url, false);
   }
+  return $url;
 }
 
 function getScheme($url) {
   return parse_url($url, PHP_URL_SCHEME);
+}
+
+function getHost($url) {
+  return parse_url($url, PHP_URL_HOST);
 }
 
 function getUrlUpToDomain($url) {
@@ -264,6 +278,10 @@ function getUrlHost($url) {
 
 function strStartsWith(string $haystack, string $needle) {
   return substr($haystack, 0, strlen($needle)) === $needle;
+}
+
+function strEndsWith(string $haystack, string $needle) {
+  return substr($haystack, strlen($haystack) - strlen($needle)) === $needle;
 }
 
 function strContains(string $haystack, string $needle) {
