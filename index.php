@@ -223,6 +223,7 @@ function preprocessAbsoluteUrl($url, $firstRun = true) {
   $user = isset($parts['user']) ? $parts['user'] : '';
   $pass = isset($parts['pass']) ? ":{$parts['pass']}" : '';
   $userpass = $user !== '' || $pass !== '' ? "{$user}{$pass}@" : '';
+  $host = isset($parts['host'])
     ? (preg_match('/^(?:localhost|www\.|\d{1,3}\.\d{1,3}\d{1,3}\.\d{1,3})/i', $parts['host'])
       ? $parts['host']
       : "www.{$parts['host']}")
