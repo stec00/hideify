@@ -67,6 +67,7 @@ function sendHttpRequest($url) {
     $payload = file_get_contents('php://input');
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
   }
+  //curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
   curl_setopt($ch, CURLOPT_HEADER, false);
   curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFilename);
   curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFilename);
@@ -176,7 +177,8 @@ function convertLinksInContent($content, $pageUrl) {
       }
       return $replaced;
     },
-    $content);
+    $content
+  );
   return $content;
 }
 
@@ -194,7 +196,7 @@ function convertLinksInString(string $str) {
 function getConvertedLink($linkUrl, $pageUrl) {
   global $SERVER_URL;
   if ($linkUrl === '' || strStartsWith($linkUrl, '#') || strStartsWith($linkUrl, "$SERVER_URL?")) return $linkUrl;
-  if (preg_match('/(?:\:\/\/|^javascript:|^about:)/i', $linkUrl)) {
+  if (preg_match('/^(?:[^\/?:]*\:\/\/|javascript:|about:)/i', $linkUrl)) {
     if (!preg_match('/^(?:https?)?:\\/\\//i', $linkUrl)) return $linkUrl;
   } else {
     if (strStartsWith($linkUrl, '/')) {
@@ -205,7 +207,8 @@ function getConvertedLink($linkUrl, $pageUrl) {
     $linkUrl = "{$pageUrlPart}{$linkUrl}";
   }
   $appendChar = !strContains($linkUrl, '?') ? '?' : '';
-  $convertedLink = "{$SERVER_URL}?{$linkUrl}{$appendChar}";
+  $encodedLinkUrl = urlencode($linkUrl);
+  $convertedLink = "{$SERVER_URL}?{$encodedLinkUrl}{$appendChar}";
   return $convertedLink;
 }
 
@@ -220,8 +223,7 @@ function preprocessAbsoluteUrl($url, $firstRun = true) {
   $user = isset($parts['user']) ? $parts['user'] : '';
   $pass = isset($parts['pass']) ? ":{$parts['pass']}" : '';
   $userpass = $user !== '' || $pass !== '' ? "{$user}{$pass}@" : '';
-  $host = isset($parts['host'])
-    ? (preg_match('/(?:^localhost|^\d{1,3}\.\d{1,3}\d{1,3}\.\d{1,3}|^www\.)/i', $parts['host'])
+    ? (preg_match('/^(?:localhost|www\.|\d{1,3}\.\d{1,3}\d{1,3}\.\d{1,3})/i', $parts['host'])
       ? $parts['host']
       : "www.{$parts['host']}")
     : '';
