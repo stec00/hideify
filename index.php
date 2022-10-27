@@ -150,6 +150,7 @@ function sendHeaders($headers, $pageUrl) {
       !$skipping
       && !strStartsWith($lowerCaseHeader, 'content-encoding')
       && !strStartsWith($lowerCaseHeader, 'transfer-encoding')
+      && !strStartsWith($lowerCaseHeader, 'content-security-policy')
     ) {
       $header = convertUrlsInString($header);
       $newHeaders[] = $header;
@@ -234,8 +235,10 @@ function convertUrl($url, $pageUrl, $httpEncode = false) {
   }
   $newUrl = getAbsoluteUrl($newUrl, $pageUrl);
   if (
-    !preg_match('/^(?:(?:[^\/?:]*\:?)\/\/|javascript:|about:|data:)/i', $url)
-    || preg_match('/^(?:https?:)?\/\//i', $url)
+    !preg_match('/(?:^$|^\.$|^#)/i', $url)
+    && !strStartsWith($url, "{$SERVER_URL}?")
+    && (!preg_match('/^(?:(?:[^\/?:]*\:?)\/\/|javascript:|about:|data:)/i', $url)
+      || preg_match('/^(?:https?:)?\/\//i', $url))
   ) {
     $newUrl = urlencode($newUrl);
     $newUrl = preg_replace('/%23/', '#', $newUrl, 1);
@@ -249,7 +252,7 @@ function convertUrl($url, $pageUrl, $httpEncode = false) {
 
 function getAbsoluteUrl($url, $pageUrl) {
   global $SERVER_URL;
-  if ($url === '' || strStartsWith($url, '#') || strStartsWith($url, "$SERVER_URL?")) return $url;
+  if (preg_match('/(?:^$|^\.$|^#)/i', $url) || strStartsWith($url, "{$SERVER_URL}?")) return $url;
   if (preg_match('/^(?:(?:[^\/?:]*\:?)\/\/|javascript:|about:|data:)/i', $url)) {
     if (!preg_match('/^(?:https?:)?\/\//i', $url)) {
       return $url;
