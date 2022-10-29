@@ -9,6 +9,7 @@ ini_set('max_execution_time', 0);
 // require_once('url_suffixes.php');
 
 $SERVER_URL = getServerUrl();
+$ESC_SERVER_URL = str_replace('/', '\/', preg_quote($SERVER_URL));
 
 $queryString = $_SERVER['QUERY_STRING'];
 $payload = file_get_contents('php://input');
@@ -138,19 +139,18 @@ function sendHeaders($headers, $pageUrl) {
     if (preg_match('/^(location:\s*)(.*)/i', $header, $matches)) {
       $pageUrl = getUrlToPath(getAbsoluteUrl($matches[2], $pageUrl));
       $header = "{$matches[1]}{$pageUrl}";
-    }
-
-    $lowerCaseHeader = trim(strtolower($header));
-    if (preg_match('/^http\/[\d.]*? 3/i', $lowerCaseHeader)) {
+    } else if (preg_match('/^(link:\s+<)([^>]+)(>.*)/i', $header, $matches)) {
+      $url = convertUrl($matches[2], $pageUrl);
+      $header = "{$matches[1]}{$url}{$matches[3]}";
+    } else if (preg_match('/^http\/[\d.]*? 3/i', $header)) {
       $skipping = true;
-    } else if (strStartsWith($lowerCaseHeader, 'http/')) {
+    } else if (preg_match('/^http\//i', $header)) {
       $skipping = false;
     }
+
     if (
       !$skipping
-      && !strStartsWith($lowerCaseHeader, 'content-encoding')
-      && !strStartsWith($lowerCaseHeader, 'transfer-encoding')
-      && !strStartsWith($lowerCaseHeader, 'content-security-policy')
+      && !preg_match('/^(?:content-encoding|content-security-policy|cross-origin|referrer-policy|timing-allow-origin|transfer-encoding)/i', $header)
     ) {
       $header = convertUrlsInString($header);
       $newHeaders[] = $header;
@@ -160,6 +160,10 @@ function sendHeaders($headers, $pageUrl) {
   foreach ($newHeaders as $header) {
     header($header);
   }
+  header('Access-Control-Allow-Origin: *');
+  header('Cross-Origin-Resource-Policy: cross-origin');
+  header('Referrer-Policy: unsafe-url');
+  header('Timing-Allow-Origin: *');
 
   return $pageUrl;
 }
@@ -178,37 +182,59 @@ function getCharset($contentType) {
 }
 
 function convertUrlsInContent($content, $pageUrl) {
-  global $SERVER_URL;
+  global $SERVER_URL, $ESC_SERVER_URL;
   $pageHost = getUrlHost($pageUrl);
   $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?$pageHost", $content);
+  // href/src/srcset/url =/: "..."/'...'/`...`/&quot;...&quot;/&apos;...&apos;
   $content = preg_replace_callback(
-    '/(href|src|srcset|url)((?:["\']|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\3/i',
+    '/([:\s])(href|src|srcset|url)((?:["\'`]|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\4/i',
     function ($matches) use ($pageUrl) {
-      if ($matches[1] === 'srcset') {
+      if ($matches[2] === 'srcset') {
         $convertedValue = preg_replace_callback(
           '/([^\s,]*)(.*?(?:,\s*|$))/',
           function ($matches) use ($pageUrl) {
             $convertedUrl = convertUrl($matches[1], $pageUrl);
             return "{$convertedUrl}{$matches[2]}";
           },
-          $matches[4]
+          $matches[5]
         );
       } else {
-        $convertedValue = convertUrl($matches[4], $pageUrl, in_array($matches[3], array('&quot', '&apos')));
+        $convertedValue = convertUrl($matches[5], $pageUrl, in_array($matches[4], array('&quot', '&apos')));
       }
-      $replaced = "{$matches[1]}{$matches[2]}{$matches[3]}{$convertedValue}{$matches[3]}";
+      $replaced = "{$matches[1]}{$matches[2]}{$matches[3]}{$matches[4]}{$convertedValue}{$matches[4]}";
       return $replaced;
     },
     $content
   );
+  // : url ( "..."/'...'/... )
   $content = preg_replace_callback(
-    '/(action\s*=\s*)(["\'])(.*?)\2(.*?>)/i',
+    '/(:\s*url\s*\(\s*)(["\']|)(.*?)\2(\s*\))/i',
+    function ($matches) use ($pageUrl) {
+      $convertedValue = convertUrl($matches[3], $pageUrl);
+      $replaced = "{$matches[1]}{$matches[2]}{$convertedValue}{$matches[2]}{$matches[4]}";
+      return $replaced;
+    },
+    $content
+  );
+  // <form ...action = "..."/'...'...>
+  $content = preg_replace_callback(
+    '/(<form\s+[^>]*)(action\s*=\s*)(["\'])(.*?)\2(.*?>)/i',
     function ($matches) use ($pageUrl) {
       global $SERVER_URL;
-      $absUrl = getAbsoluteUrl($matches[3], $pageUrl);
+      $absUrl = getAbsoluteUrl($matches[4], $pageUrl);
       $appendChar = !strContains($absUrl, '?') && !strContains($absUrl, '#') ? '?' : '';
       $absUrl = "{$absUrl}{$appendChar}";
-      $replaced = "{$matches[1]}{$matches[2]}{$SERVER_URL}?{$matches[2]}{$matches[4]}<input type='hidden' name='pageUrl' value='{$absUrl}'/>";
+      $replaced = "{$matches[1]}{$matches[2]}{$matches[3]}{$SERVER_URL}?{$matches[3]}{$matches[5]}<input type='hidden' name='pageUrl' value='{$absUrl}'/>";
+      return $replaced;
+    },
+    $content
+  );
+
+  $content = preg_replace_callback(
+    "/([=:]\s*)([\"'`]|&quot;|&apos;)(?!$$ESC_SERVER_URL)(https?:\/\/(?!(?:\\2)).+?)\\2/i",
+    function ($matches) use ($pageUrl) {
+      $convertedValue = convertUrl($matches[3], $pageUrl, in_array($matches[2], array('&quot', '&apos')));
+      $replaced = "{$matches[1]}{$matches[2]}{$convertedValue}{$matches[2]}";
       return $replaced;
     },
     $content
