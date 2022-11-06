@@ -133,26 +133,30 @@ function sendHttpRequest($url, $payload) {
 }
 
 function sendHeaders($headers, $pageUrl) {
-  $skipping = false;
+  $httpEntryFound = false;
   $newHeaders = [];
   foreach ($headers as $header) {
+    $header = trim($header);
+    if (empty($header)) continue;
     if (preg_match('/^(location:\s*)(.*)/i', $header, $matches)) {
       $pageUrl = getUrlToPath(getAbsoluteUrl($matches[2], $pageUrl));
       $header = "{$matches[1]}{$pageUrl}";
-    } else if (preg_match('/^(link:\s+<)([^>]+)(>.*)/i', $header, $matches)) {
-      $url = convertUrl($matches[2], $pageUrl);
-      $header = "{$matches[1]}{$url}{$matches[3]}";
-    } else if (preg_match('/^http\/[\d.]*? 3/i', $header)) {
-      $skipping = true;
-    } else if (preg_match('/^http\//i', $header)) {
-      $skipping = false;
     }
 
-    if (
-      !$skipping
-      && !preg_match('/^(?:content-encoding|content-security-policy|cross-origin|referrer-policy|timing-allow-origin|transfer-encoding)/i', $header)
-    ) {
+    if (!preg_match('/^(?:content-encoding|content-security-policy|cross-origin|referrer-policy|timing-allow-origin|transfer-encoding)/i', $header)) {
+      if (preg_match('/^(link:\s+<)([^>]+)(>.*)/i', $header, $matches)) {
+        $url = convertUrl($matches[2], $pageUrl);
+        $header = "{$matches[1]}{$url}{$matches[3]}";
+      }
       $header = convertUrlsInString($header);
+
+      if (preg_match('/^http\//i', $header)) {
+        if ($httpEntryFound) {
+          $newHeaders = [];
+        }
+        $httpEntryFound = true;
+      }
+
       $newHeaders[] = $header;
     }
   }
@@ -286,11 +290,7 @@ function getAbsoluteUrl($url, $pageUrl) {
       $newUrl = $url;
     }
   } else {
-    if (strStartsWith($url, '/')) {
-      $pageUrlPart = getUrlToPort($pageUrl);
-    } else {
-      $pageUrlPart = getUrlToPath($pageUrl);
-    }
+    $pageUrlPart = strStartsWith($url, '/') ? getUrlToPort($pageUrl) : getUrlToPath($pageUrl);
     $newUrl = "{$pageUrlPart}{$url}";
   }
   return $newUrl;
