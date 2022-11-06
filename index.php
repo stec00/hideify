@@ -12,65 +12,70 @@ $SERVER_URL = getServerUrl();
 $ESC_SERVER_URL = str_replace('/', '\/', preg_quote($SERVER_URL));
 
 $queryString = $_SERVER['QUERY_STRING'];
-$payload = file_get_contents('php://input');
-if (strlen($queryString) > 0 || $payload > 0) {
+$PAYLOAD = file_get_contents('php://input');
+if (strlen($queryString) > 0 || $PAYLOAD > 0) {
   if (strStartsWith($queryString, 'pageUrl=')) {
     $ampersandPos = strpos($queryString, '&');
     if ($ampersandPos === false) {
-      $pageUrl = urldecode(substr($queryString, 8));
+      $PAGE_URL = urldecode(substr($queryString, 8));
     } else {
-      $pageUrl = urldecode(substr($queryString, 8, $ampersandPos - 8))
+      $PAGE_URL = urldecode(substr($queryString, 8, $ampersandPos - 8))
         . substr($queryString, $ampersandPos);
     }
-  } else if (strStartsWith($payload, 'pageUrl=')) {
-    $ampersandPos = strpos($payload, '&');
+  } else if (strStartsWith($PAYLOAD, 'pageUrl=')) {
+    $ampersandPos = strpos($PAYLOAD, '&');
     if ($ampersandPos === false) {
-      $pageUrl = urldecode(substr($payload, 8));
-      $payload = '';
+      $PAGE_URL = urldecode(substr($PAYLOAD, 8));
+      $PAYLOAD = '';
     } else {
-      $pageUrl = urldecode(substr($payload, 8, $ampersandPos - 8));
-      $payload = substr($payload, $ampersandPos + 1);
-      $payload = convertUrlsInString($payload, $pageUrl);
+      $PAGE_URL = urldecode(substr($PAYLOAD, 8, $ampersandPos - 8));
+      $PAYLOAD = substr($PAYLOAD, $ampersandPos + 1);
+      $PAYLOAD = convertUrlsInString($PAYLOAD, $PAGE_URL);
     }
   } else {
-    $pageUrl = urldecode($queryString);
+    $PAGE_URL = urldecode($queryString);
   }
-  $pageUrl = preprocessAbsoluteUrl($pageUrl);
-  sendResponseForHttpRequest($pageUrl, $payload);
+  $PAGE_URL = preprocessAbsoluteUrl($PAGE_URL);
+  $PAGE_URL_HOST = getUrlHost($PAGE_URL);
+  $PAGE_URL_TO_PORT = getUrlToPort($PAGE_URL);
+  $PAGE_URL_TO_PATH = getUrlToPath($PAGE_URL);
+
+  sendResponseForHttpRequest();
 } else {
   // Redirect to home page
   header("Location: index.html");
 }
 
 // Send an HTTP request (see https://stackoverflow.com/questions/5647461) and respond according to the response 
-function sendResponseForHttpRequest($pageUrl, $payload) {
-  $curlResponse = sendHttpRequest($pageUrl, $payload);
+function sendResponseForHttpRequest() {
+  $curlResponse = sendHttpRequest();
 
   $content = $curlResponse['content'];
   $headers = $curlResponse['headers'];
-  $pageUrl = sendHeaders($headers, $pageUrl);
+  sendHeaders($headers);
 
   $contentType = getContentType($headers);
   $isTextual = preg_match('/(?:text\/|html|json|xml|multipart)/i', $contentType);
   if ($isTextual) {
-    $content = convertUrlsInContent($content, $pageUrl);
+    $content = convertUrlsInContent($content);
   }
   echo ($content);
 }
 
-function sendHttpRequest($url, $payload) {
+function sendHttpRequest() {
+  global $PAYLOAD, $PAGE_URL, $PAGE_URL_TO_PORT, $PAGE_URL_HOST;
   $curDir = __DIR__;
   $cookieFilenameBase = urlencode(
     "{$_SERVER['REMOTE_ADDR']}-{$_SERVER['HTTP_X_FORWARDED_FOR']}-{$_SERVER['HTTP_USER_AGENT']}"
   );
   $cookieFilename = "{$curDir}/cookies/{$cookieFilenameBase}.txt";
 
-  $ch = curl_init($url);
+  $ch = curl_init($PAGE_URL);
   $requestMethod = $_SERVER['REQUEST_METHOD'];
   if ($requestMethod !== 'GET') {
     $headers = getallheaders();
-    $headers['Referer'] = getUrlToPort($url);
-    $headers['Host'] = getHost($url);
+    $headers['Referer'] = $PAGE_URL_TO_PORT;
+    $headers['Host'] = $PAGE_URL_HOST;
     $headers['Origin'] = $headers['Referer'];
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     if ($requestMethod === 'POST') {
@@ -78,7 +83,7 @@ function sendHttpRequest($url, $payload) {
     } else {
       curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $requestMethod);
     }
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $PAYLOAD);
   }
   //curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
   //curl_setopt($ch, CURLOPT_HEADER, false); // 0 is default
@@ -121,7 +126,7 @@ function sendHttpRequest($url, $payload) {
   $content = curl_exec($ch);
 
   if (curl_errno($ch)) {
-    echo ("Failed {$_SERVER['REQUEST_METHOD']} request to {$url}");
+    echo ("Failed {$_SERVER['REQUEST_METHOD']} request to {$PAGE_URL}");
     $curlError = curl_error($ch);
     echo ("<br/><br/>{$curlError}");
     curl_close($ch);
@@ -132,20 +137,21 @@ function sendHttpRequest($url, $payload) {
   }
 }
 
-function sendHeaders($headers, $pageUrl) {
+function sendHeaders($headers) {
+  global $PAGE_URL;
   $httpEntryFound = false;
   $newHeaders = [];
   foreach ($headers as $header) {
     $header = trim($header);
     if (empty($header)) continue;
     if (preg_match('/^(location:\s*)(.*)/i', $header, $matches)) {
-      $pageUrl = getUrlToPath(getAbsoluteUrl($matches[2], $pageUrl));
-      $header = "{$matches[1]}{$pageUrl}";
+      $PAGE_URL = getUrlToPath(getAbsoluteUrl($matches[2], $PAGE_URL));
+      $header = "{$matches[1]}{$PAGE_URL}";
     }
 
     if (!preg_match('/^(?:content-encoding|content-security-policy|cross-origin|referrer-policy|timing-allow-origin|transfer-encoding)/i', $header)) {
       if (preg_match('/^(link:\s+<)([^>]+)(>.*)/i', $header, $matches)) {
-        $url = convertUrl($matches[2], $pageUrl);
+        $url = convertUrl($matches[2], $PAGE_URL);
         $header = "{$matches[1]}{$url}{$matches[3]}";
       }
       $header = convertUrlsInString($header);
@@ -168,42 +174,36 @@ function sendHeaders($headers, $pageUrl) {
   header('Cross-Origin-Resource-Policy: cross-origin');
   header('Referrer-Policy: unsafe-url');
   header('Timing-Allow-Origin: *');
-
-  return $pageUrl;
 }
 
 function getContentType($httpResponseHeaderArray) {
   $httpResponseHeaderStr = implode("\n", $httpResponseHeaderArray);
-  if (preg_match_all('/^content-type\s*:\s*(.*)$/mi', $httpResponseHeaderStr, $matches, PREG_SET_ORDER)) {
-    return end($matches)[1];
-  } else {
-    return NULL;
-  }
+  return preg_match_all('/^content-type\s*:\s*(.*)$/mi', $httpResponseHeaderStr, $matches, PREG_SET_ORDER) ?
+    end($matches)[1] : NULL;
 }
 
 function getCharset($contentType) {
   return preg_match('/;\s*charset\s*=\s*(.*)$/i', $contentType, $matches) ? $matches[1] : '';
 }
 
-function convertUrlsInContent($content, $pageUrl) {
-  global $SERVER_URL, $ESC_SERVER_URL;
-  $pageHost = getUrlHost($pageUrl);
-  $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?$pageHost", $content);
+function convertUrlsInContent($content) {
+  global $SERVER_URL, $ESC_SERVER_URL, $PAGE_URL_HOST;
+  $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?$PAGE_URL_HOST", $content);
   // href/src/srcset/url =/: "..."/'...'/`...`/&quot;...&quot;/&apos;...&apos;
   $content = preg_replace_callback(
     '/([:\s])(href|src|srcset|url)((?:["\'`]|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\4/i',
-    function ($matches) use ($pageUrl) {
+    function ($matches) {
       if ($matches[2] === 'srcset') {
         $convertedValue = preg_replace_callback(
           '/([^\s,]*)(.*?(?:,\s*|$))/',
-          function ($matches) use ($pageUrl) {
-            $convertedUrl = convertUrl($matches[1], $pageUrl);
+          function ($matches) {
+            $convertedUrl = convertUrl($matches[1]);
             return "{$convertedUrl}{$matches[2]}";
           },
           $matches[5]
         );
       } else {
-        $convertedValue = convertUrl($matches[5], $pageUrl, in_array($matches[4], array('&quot', '&apos')));
+        $convertedValue = convertUrl($matches[5], in_array($matches[4], array('&quot', '&apos')));
       }
       $replaced = "{$matches[1]}{$matches[2]}{$matches[3]}{$matches[4]}{$convertedValue}{$matches[4]}";
       return $replaced;
@@ -213,8 +213,8 @@ function convertUrlsInContent($content, $pageUrl) {
   // : url ( "..."/'...'/... )
   $content = preg_replace_callback(
     '/(:\s*url\s*\(\s*)(["\']|)(.*?)\2(\s*\))/i',
-    function ($matches) use ($pageUrl) {
-      $convertedValue = convertUrl($matches[3], $pageUrl);
+    function ($matches) {
+      $convertedValue = convertUrl($matches[3]);
       $replaced = "{$matches[1]}{$matches[2]}{$convertedValue}{$matches[2]}{$matches[4]}";
       return $replaced;
     },
@@ -223,9 +223,9 @@ function convertUrlsInContent($content, $pageUrl) {
   // <form ...action = "..."/'...'...>
   $content = preg_replace_callback(
     '/(<form\s+[^>]*)(action\s*=\s*)(["\'])(.*?)\2(.*?>)/i',
-    function ($matches) use ($pageUrl) {
+    function ($matches) {
       global $SERVER_URL;
-      $absUrl = getAbsoluteUrl($matches[4], $pageUrl);
+      $absUrl = getAbsoluteUrl($matches[4]);
       $appendChar = !strContains($absUrl, '?') && !strContains($absUrl, '#') ? '?' : '';
       $absUrl = "{$absUrl}{$appendChar}";
       $replaced = "{$matches[1]}{$matches[2]}{$matches[3]}{$SERVER_URL}?{$matches[3]}{$matches[5]}<input type='hidden' name='pageUrl' value='{$absUrl}'/>";
@@ -236,8 +236,8 @@ function convertUrlsInContent($content, $pageUrl) {
 
   $content = preg_replace_callback(
     "/([=:]\s*)([\"'`]|&quot;|&apos;)(?!$$ESC_SERVER_URL)(https?:\/\/(?!(?:\\2)).+?)\\2/i",
-    function ($matches) use ($pageUrl) {
-      $convertedValue = convertUrl($matches[3], $pageUrl, in_array($matches[2], array('&quot', '&apos')));
+    function ($matches) {
+      $convertedValue = convertUrl($matches[3], in_array($matches[2], array('&quot', '&apos')));
       $replaced = "{$matches[1]}{$matches[2]}{$convertedValue}{$matches[2]}";
       return $replaced;
     },
@@ -257,13 +257,13 @@ function convertUrlsInString(string $str) {
   );
 }
 
-function convertUrl($url, $pageUrl, $httpEncode = false) {
+function convertUrl($url, $httpEncode = false) {
   global $SERVER_URL;
   $newUrl = $url;
   if ($httpEncode) {
     $newUrl = html_entity_decode($newUrl);
   }
-  $newUrl = getAbsoluteUrl($newUrl, $pageUrl);
+  $newUrl = getAbsoluteUrl($newUrl);
   if (
     !preg_match('/(?:^$|^\.$|^#)/i', $url)
     && !strStartsWith($url, "{$SERVER_URL}?")
@@ -280,8 +280,8 @@ function convertUrl($url, $pageUrl, $httpEncode = false) {
   return $newUrl;
 }
 
-function getAbsoluteUrl($url, $pageUrl) {
-  global $SERVER_URL;
+function getAbsoluteUrl($url) {
+  global $SERVER_URL, $PAGE_URL_TO_PORT, $PAGE_URL_TO_PATH;
   if (preg_match('/(?:^$|^\.$|^#)/i', $url) || strStartsWith($url, "{$SERVER_URL}?")) return $url;
   if (preg_match('/^(?:(?:[^\/?:]*\:?)\/\/|javascript:|about:|data:)/i', $url)) {
     if (!preg_match('/^(?:https?:)?\/\//i', $url)) {
@@ -290,7 +290,7 @@ function getAbsoluteUrl($url, $pageUrl) {
       $newUrl = $url;
     }
   } else {
-    $pageUrlPart = strStartsWith($url, '/') ? getUrlToPort($pageUrl) : getUrlToPath($pageUrl);
+    $pageUrlPart = strStartsWith($url, '/') ? $PAGE_URL_TO_PORT : $PAGE_URL_TO_PATH;
     $newUrl = "{$pageUrlPart}{$url}";
   }
   return $newUrl;
@@ -314,14 +314,6 @@ function preprocessAbsoluteUrl($url) {
   $fragment = isset($parts['fragment']) ? "#{$parts['fragment']}" : '';
   $url = "{$scheme}://{$userpass}{$host}{$port}{$path}{$query}{$fragment}";
   return $url;
-}
-
-function getScheme($url) {
-  return parse_url($url, PHP_URL_SCHEME);
-}
-
-function getHost($url) {
-  return parse_url($url, PHP_URL_HOST);
 }
 
 function getUrlToPort($url) {
