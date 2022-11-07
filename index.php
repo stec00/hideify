@@ -188,8 +188,8 @@ function getCharset($contentType) {
 
 function convertUrlsInContent($content) {
   global $SERVER_URL, $ESC_SERVER_URL, $PAGE_URL_HOST;
-  $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?$PAGE_URL_HOST", $content);
-  // href/src/srcset/url =/: "..."/'...'/`...`/&quot;...&quot;/&apos;...&apos;
+  $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?{$PAGE_URL_HOST}", $content);
+  // href/data-src/src/srcset/url =/: "..."/'...'/`...`/&quot;...&quot;/&apos;...&apos;
   $content = preg_replace_callback(
     '/([:\s])(href|(?:data-)?src|srcset|url)((?:["\'`]|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\4/i',
     function ($matches) {
