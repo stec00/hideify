@@ -8,6 +8,7 @@ ini_set('max_execution_time', 0);
 // // Include library for detecting browser
 // require_once('url_suffixes.php');
 
+$SERVER_HOST = $_SERVER['HTTP_HOST'];
 $SERVER_URL = getServerUrl();
 $ESC_SERVER_URL = str_replace('/', '\/', preg_quote($SERVER_URL));
 
@@ -187,8 +188,8 @@ function getCharset($contentType) {
 }
 
 function convertUrlsInContent($content) {
-  global $SERVER_URL, $ESC_SERVER_URL, $PAGE_URL_HOST;
-  $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?{$PAGE_URL_HOST}", $content);
+  global $SERVER_HOST, $SERVER_URL, $ESC_SERVER_URL, $PAGE_URL_HOST;
+  $content = str_replace($SERVER_HOST, "{$SERVER_URL}?{$PAGE_URL_HOST}", $content);
   // href/data-src/src/srcset/url =/: "..."/'...'/`...`/&quot;...&quot;/&apos;...&apos;
   $content = preg_replace_callback(
     '/([:\s])(href|(?:data-)?src|srcset|url)((?:["\'`]|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\4/i',
@@ -297,8 +298,9 @@ function getAbsoluteUrl($url) {
 }
 
 function getServerUrl() {
+  global $SERVER_HOST;
   $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
-  return "{$scheme}://{$_SERVER['HTTP_HOST']}{$_SERVER['URL']}";
+  return "{$scheme}://{$SERVER_HOST}{$_SERVER['URL']}";
 }
 
 function preprocessAbsoluteUrl($url) {
