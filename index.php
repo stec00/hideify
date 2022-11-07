@@ -191,7 +191,7 @@ function convertUrlsInContent($content) {
   $content = str_replace($_SERVER['HTTP_HOST'], "{$SERVER_URL}?$PAGE_URL_HOST", $content);
   // href/src/srcset/url =/: "..."/'...'/`...`/&quot;...&quot;/&apos;...&apos;
   $content = preg_replace_callback(
-    '/([:\s])(href|src|srcset|url)((?:["\'`]|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\4/i',
+    '/([:\s])(href|(?:data-)?src|srcset|url)((?:["\'`]|&quot;|&apos;)?\s*[=:]\s*)(["\']|&quot;|&apos;)(.*?)\4/i',
     function ($matches) {
       if ($matches[2] === 'srcset') {
         $convertedValue = preg_replace_callback(
@@ -235,7 +235,7 @@ function convertUrlsInContent($content) {
   );
 
   $content = preg_replace_callback(
-    "/([=:]\s*)([\"'`]|&quot;|&apos;)(?!$$ESC_SERVER_URL)(https?:\/\/(?!(?:\\2)).+?)\\2/i",
+    "/([=:]\s*)([\"'`]|&quot;|&apos;)(?!$ESC_SERVER_URL)(https?:\/\/(?!(?:\\2)).+?)\\2/i",
     function ($matches) {
       $convertedValue = convertUrl($matches[3], in_array($matches[2], array('&quot', '&apos')));
       $replaced = "{$matches[1]}{$matches[2]}{$convertedValue}{$matches[2]}";
