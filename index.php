@@ -268,7 +268,7 @@ function convertUrl($url, $httpEncode = false) {
   if (
     !preg_match('/(?:^$|^\.$|^#)/i', $url)
     && !strStartsWith($url, "{$SERVER_URL}?")
-    && (!preg_match('/^(?:(?:[^\/?:]*\:?)\/\/|javascript:|about:|data:)/i', $url)
+    && (!preg_match('/^(?:(?:[^\/?:]*:?)\/\/|javascript:|about:|data:)/i', $url)
       || preg_match('/^(?:https?:)?\/\//i', $url))
   ) {
     $newUrl = urlencode($newUrl);
@@ -284,7 +284,7 @@ function convertUrl($url, $httpEncode = false) {
 function getAbsoluteUrl($url) {
   global $SERVER_URL, $PAGE_URL_TO_PORT, $PAGE_URL_TO_PATH;
   if (preg_match('/(?:^$|^\.$|^#)/i', $url) || strStartsWith($url, "{$SERVER_URL}?")) return $url;
-  if (preg_match('/^(?:(?:[^\/?:]*\:?)\/\/|javascript:|about:|data:)/i', $url)) {
+  if (preg_match('/^(?:(?:[^\/?:]*:?)\/\/|javascript:|about:|data:)/i', $url)) {
     if (!preg_match('/^(?:https?:)?\/\//i', $url)) {
       return $url;
     } else {
